@@ -68,12 +68,15 @@
                 </span>
   
                 <button
-                  class="bg-white text-slate-700 border border-slate-200 rounded-lg px-3 py-[6px] text-[13px] font-semibold hover:bg-slate-50"
+                  class="bg-white text-slate-700 border border-slate-200 rounded-lg px-3 py-[6px] text-[13px] font-semibold hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                   type="button"
                   @click="buildSummaryToNow"
-                  title="Genera riassunto (trascrizione SRT) fino al timestamp corrente"
+                  :disabled="isGeneratingMap"
+                  title="Genera mappa concettuale fino al timestamp corrente"
                 >
-                  Riassumi fino a {{ currentHHMMSS }}
+                  <div v-if="isGeneratingMap" class="spinner"></div>
+                  <span v-if="isGeneratingMap">Generando...</span>
+                  <span v-else>Genera mappa fino a {{ currentHHMMSS }}</span>
                 </button>
   
                 <button
@@ -101,45 +104,6 @@
             <div id="map-container" class="flex flex-col gap-3 mt-2" ref="containerRef"></div>
           </section>
   
-          <!-- RIASSUNTO -->
-          <section v-if="summary.visible" class="bg-white border border-slate-100 rounded-[10px] p-[14px]">
-            <div class="flex justify-between items-center">
-              <h3 class="font-bold text-slate-700 mb-2 mt-0">
-                Riassunto 0 → {{ summary.hhmmss }}
-              </h3>
-              <button
-                class="bg-white text-slate-700 border border-slate-200 rounded-lg px-3 py-[6px] text-[13px] font-semibold hover:bg-slate-50"
-                @click="copySummary"
-              >
-                Copia
-              </button>
-            </div>
-  
-            <div class="space-y-3">
-              <!-- Bullet dinamici (estratti dalla trascrizione) -->
-              <div v-if="summary.bullets.length">
-                <h4 class="text-[14px] font-semibold text-slate-700">Punti chiave</h4>
-                <ul class="list-disc pl-5 space-y-1 text-sm text-slate-700">
-                  <li v-for="(b, i) in summary.bullets" :key="i">{{ b }}</li>
-                </ul>
-              </div>
-  
-              <!-- Appunti utente -->
-              <div v-if="summary.notes.length">
-                <h4 class="text-[14px] font-semibold text-slate-700">Appunti (utente)</h4>
-                <ul class="list-disc pl-5 space-y-1 text-sm text-slate-700">
-                  <li v-for="n in summary.notes" :key="n.id">
-                    <span class="text-slate-500 mr-2">{{ n.hhmmss }}</span>{{ n.text }}
-                  </li>
-                </ul>
-              </div>
-  
-              <!-- Sintesi -->
-              <p v-if="summary.paragraph" class="text-sm text-slate-700">
-                {{ summary.paragraph }}
-              </p>
-            </div>
-          </section>
         </section>
   
         <!-- COLONNA DESTRA -->
@@ -194,9 +158,6 @@
   /** ID del video Wistia */
   const wistiaId = 'glkoqys695'
   
-  /** URL trascrizione SRT (servita da /public) */
-  const transcriptUrl = '/transcriptions/glkoqys695.srt' // <-- cambia se diverso
-  
   /** Refs DOM */
   const associatorRef = ref<HTMLElement | null>(null)
   const containerRef = ref<HTMLElement | null>(null)
@@ -209,6 +170,9 @@
     toast.visible = true
     setTimeout(() => (toast.visible = false), 2000)
   }
+
+  /** Loading state per generazione mappa concettuale */
+  const isGeneratingMap = ref(false)
   
   /** ========= Wistia ========= */
   const player = ref<any>(null)          // istanza del player Wistia
@@ -220,10 +184,6 @@
     const m = String(Math.floor((total % 3600) / 60)).padStart(2, '0')
     const sec = String(total % 60).padStart(2, '0')
     return `${h}:${m}:${sec}`
-  }
-  function hhmmssToSeconds(hms: string) {
-    const [h, m, s] = hms.split(':').map(n => parseInt(n || '0', 10))
-    return (h * 3600) + (m * 60) + (s || 0)
   }
   const currentHHMMSS = computed(() => secondsToHHMMSS(currentSeconds.value))
   
@@ -267,158 +227,7 @@
       },
     })
   }
-  
-  /** ========= Trascrizione: SRT (con fallback VTT) ========= */
-  type Cue = { start: number; end: number; text: string }
-  const cues = ref<Cue[]>([])
-  const transcriptLoaded = ref(false)
-  
-  /** "HH:MM:SS,mmm" o "HH:MM:SS.mmm" → seconds */
-  function tToSec(t: string) {
-    const [h, m, s] = t.replace(',', '.').split(':').map(Number)
-    return (h || 0) * 3600 + (m || 0) * 60 + (s || 0)
-  }
-  
-  /** Parser VTT minimale (per sicurezza, nel caso avessi un VTT in futuro) */
-  function parseVtt(text: string): Cue[] {
-    const lines = text.replace(/\r/g, '').split('\n')
-    const out: Cue[] = []
-    let i = 0
-    while (i < lines.length) {
-      const line = lines[i].trim()
-      if (!line || /^WEBVTT/i.test(line) || /^\d+$/.test(line)) { i++; continue }
-      const m = line.match(/^(\d{2}:\d{2}:\d{2}[.,]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[.,]\d{3})/)
-      if (m) {
-        const start = tToSec(m[1])
-        const end   = tToSec(m[2])
-        i++
-        const buf: string[] = []
-        while (i < lines.length && lines[i].trim() !== '') { buf.push(lines[i].trim()); i++ }
-        out.push({ start, end, text: buf.join(' ') })
-      } else {
-        i++
-      }
-    }
-    return out
-  }
-  
-  /** Parser SRT (numero → time → testo → riga vuota) */
-  function parseSrt(text: string): Cue[] {
-    const blocks = text.replace(/\r/g, '').split(/\n\s*\n/) // blocchi separati da riga vuota
-    const out: Cue[] = []
-    for (const block of blocks) {
-      const lines = block.split('\n').map(l => l.trim()).filter(Boolean)
-      if (!lines.length) continue
-      // riga tempo può essere la 1 o 2 (perché la 0 è spesso l'indice)
-      let timeLine = ''
-      if (/^\d+$/.test(lines[0]) && lines[1] && /-->/i.test(lines[1])) timeLine = lines[1]
-      else if (/-->/i.test(lines[0])) timeLine = lines[0]
-      else continue
-  
-      const m = timeLine.match(/^(\d{2}:\d{2}:\d{2}[,\.]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[,\.]\d{3})/)
-      if (!m) continue
-      const start = tToSec(m[1])
-      const end   = tToSec(m[2])
-  
-      // testo: tutte le righe che non sono l’indice o la riga del tempo
-      const textLines = lines.filter((l, idx) => {
-        if (idx === 0 && /^\d+$/.test(l)) return false
-        if (l === timeLine) return false
-        return true
-      })
-      const textNorm = textLines.join(' ')
-        .replace(/<[^>]+>/g, '') // rimuovi eventuali tag
-        .replace(/\s+/g, ' ')
-        .trim()
-  
-      if (textNorm) out.push({ start, end, text: textNorm })
-    }
-    return out
-  }
-  
-  /** Loader generico: auto-detect VTT/SRT (usa SRT nel tuo caso) */
-  async function loadTranscript() {
-    try {
-      const res = await fetch(transcriptUrl, { cache: 'no-store' })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const text = await res.text()
-      const isVtt = /^\s*WEBVTT/i.test(text)
-      const parsed = isVtt ? parseVtt(text) : parseSrt(text)
-      cues.value = parsed
-      transcriptLoaded.value = true
-    } catch (err) {
-      console.error('Transcript load error:', err)
-      showToast('Trascrizione non disponibile', 'error')
-    }
-  }
-  
-  /** Testo trascrizione dall’inizio fino a "sec" */
-  function transcriptUpTo(sec: number) {
-    if (!cues.value.length) return ''
-    return cues.value
-      .filter(c => c.start <= sec)
-      .map(c => c.text)
-      .join(' ')
-  }
-  
-  /** Split in frasi basico */
-  function splitSentences(txt: string) {
-    return txt
-      .replace(/\s+/g, ' ')
-      .split(/(?<=[\.\!\?])\s+/)
-      .map(s => s.trim())
-      .filter(Boolean)
-  }
-  
-  /** Stopword IT minime (espandibile) */
-  const STOP = new Set([
-    'a','ad','al','allo','ai','agli','alla','alle','con','col','coi','da','dal','dallo','dai','dagli','dalla','dalle',
-    'di','del','dello','dei','degli','della','delle','in','nel','nello','nei','negli','nella','nelle',
-    'su','sul','sullo','sui','sugli','sulla','sulle','per','tra','fra','il','lo','la','i','gli','le',
-    'un','uno','una','e','o','ed','ma','non','più','meno','anche','come','che','dei','dell','dallo',
-    'mi','ti','ci','vi','si','se','quindi','poi','solo','tutto','tutta','tutti','tutte','dai','degli'
-  ])
-  
-  /** Estrae max N frasi “salienti” come bullet (TF molto semplice) */
-  function buildBulletsFromText(txt: string, maxBullets = 6) {
-    const sentences = splitSentences(txt)
-    const freq = new Map<string, number>()
-  
-    for (const s of sentences) {
-      for (const raw of s.toLowerCase().split(/[^a-zàèéìòóùA-ZÀÈÉÌÒÓÙ0-9]+/)) {
-        const w = raw.trim()
-        if (!w || STOP.has(w) || w.length < 3) continue
-        freq.set(w, (freq.get(w) || 0) + 1)
-      }
-    }
-  
-    const keywords = [...freq.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8)
-      .map(([w]) => w)
-  
-    const picked: string[] = []
-    const seen = new Set<string>()
-    for (const s of sentences) {
-      if (picked.length >= maxBullets) break
-      const low = s.toLowerCase()
-      if (keywords.some(k => low.includes(k)) && !seen.has(s)) {
-        picked.push(s)
-        seen.add(s)
-      }
-    }
-  
-    if (picked.length < Math.min(maxBullets, sentences.length)) {
-      for (let i = Math.max(0, sentences.length - maxBullets); i < sentences.length; i++) {
-        const s = sentences[i]
-        if (!seen.has(s)) picked.push(s)
-        if (picked.length >= maxBullets) break
-      }
-    }
-  
-    return picked
-  }
-  
+
   /** ========= Appunti ========= */
   type Note = { id: string; text: string; seconds: number; hhmmss: string }
   const noteDraft = ref('')
@@ -443,70 +252,75 @@
     return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`
   }
   
-  /** ========= Riassunto dinamico (SRT) ========= */
-  const summary = reactive<{
-    visible: boolean
-    hhmmss: string
-    bullets: string[]
-    notes: Note[]
-    paragraph: string
-  }>({
-    visible: false,
-    hhmmss: '00:00:00',
-    bullets: [],
-    notes: [],
-    paragraph: '',
-  })
-  
-  function buildSummaryToNow() {
-    const ts = snapshotNow()
-    const now = currentSeconds.value
-  
-    if (!transcriptLoaded.value || !cues.value.length) {
-      summary.visible = true
-      summary.hhmmss = ts
-      summary.bullets = []
-      summary.notes = notes.value.filter(n => n.seconds <= now)
-      summary.paragraph = `Fino a ${ts} la trascrizione non è disponibile.`
-      showToast('Trascrizione non disponibile', 'error')
+
+  /** ========= CrewAI Integration ========= */
+
+  async function generateConceptMapFromSummary(timestamp: string) {
+    /**
+     * Nuova funzione che chiama l'API CrewAI e ritorna il JSON
+     * per creare direttamente una mappa concettuale
+     */
+    if (isGeneratingMap.value) {
+      showToast('Generazione già in corso...', 'error')
       return
     }
-  
-    const text = transcriptUpTo(now)
-    const bullets = buildBulletsFromText(text, 6)
-  
-    summary.visible = true
-    summary.hhmmss = ts
-    summary.bullets = bullets
-    summary.notes = notes.value.filter(n => n.seconds <= now)
-    summary.paragraph = bullets.length
-      ? `Fino a ${ts} si sono trattati i seguenti punti chiave: ${bullets.slice(0,3).join(' · ')}.`
-      : `Fino a ${ts} non sono emerse frasi salienti.`
-  
-    showToast('Riassunto dinamico generato')
-  }
-  
-  async function copySummary() {
-    const bulletsTxt = summary.bullets.map(b => `• ${b}`).join('\n')
-    const notesTxt = summary.notes.map(n => `• [${n.hhmmss}] ${n.text}`).join('\n')
-    const finalText =
-  `Riassunto 0 → ${summary.hhmmss}
-  
-  Punti chiave:
-  ${bulletsTxt || '—'}
-  
-  Appunti:
-  ${notesTxt || '—'}
-  
-  Sintesi:
-  ${summary.paragraph || '—'}
-  `
+
+    isGeneratingMap.value = true
+    
     try {
-      await navigator.clipboard.writeText(finalText)
-      showToast('Riassunto copiato')
-    } catch {
-      showToast('Impossibile copiare', 'error')
+      console.log(`🤖 Generazione mappa concettuale per timestamp: ${timestamp}`)
+      
+      const response = await fetch('http://localhost:8000/generate-concept-map', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          timestamp: timestamp,
+          video_id: wistiaId
+        })
+      })
+      
+      if (!response.ok) {
+        throw new Error(`HTTP Error: ${response.status}`)
+      }
+      
+      const result = await response.json()
+      
+      console.log(result);
+      
+      if (result.success && result.concept_map_data) {
+        console.log(`✅ Dati mappa concettuale ricevuti direttamente!`)
+        console.log(`📄 Dati mappa:`, result.concept_map_data)
+        
+        // Chiama handleCreateMap con i dati della mappa ricevuti direttamente
+        handleCreateMapWithData(result.concept_map_data, timestamp)
+        showToast('Mappa concettuale generata!')
+        
+      } else {
+        console.error(`❌ Errore generazione mappa: ${result.message}`)
+        showToast('Errore nella generazione della mappa', 'error')
+      }
+      
+    } catch (error) {
+      console.error('💥 Errore chiamata API:', error)
+      showToast('Errore di connessione API', 'error')
+    } finally {
+      isGeneratingMap.value = false
     }
+  }
+
+  function buildSummaryToNow() {
+    /**
+     * NUOVA IMPLEMENTAZIONE: Genera mappa concettuale direttamente
+     * invece di salvare un file JSON
+     */
+    const ts = snapshotNow()
+    
+    console.log(`📅 Generazione mappa concettuale per timestamp: ${ts}`)
+    
+    // Chiama la nuova funzione che ritorna JSON e crea la mappa
+    generateConceptMapFromSummary(ts)
   }
   
   /** ========= Mappe ========= */
@@ -588,11 +402,33 @@
       }),
     )
   }
+
+  function handleCreateMapWithData(map_data: any, timestamp: string) {
+    /**
+     * Nuova funzione che crea una mappa concettuale con dati specifici
+     * ricevuti dall'API CrewAI
+     */
+    associatorRef.value?.dispatchEvent(
+      new CustomEvent('createMap', {
+        detail: {
+          name: 'Mappa Concettuale Generata',
+          association_type: 'lesson',
+          teaching_subject: 'Fisica Generale',
+          lesson_identifier: 'L03_Energia',
+          paragraph_identifier: 'P2_Trasformazioni',
+          timestamp: timestamp,
+          map_data: map_data, 
+          callback: () => getMaps(),
+        },
+        bubbles: true,
+        composed: true,
+      }),
+    )
+  }
   
   /** Mount */
   onMounted(async () => {
     await initWistiaPlayer()
-    await loadTranscript() // <-- carica l'SRT
   
     const metaApi = document.querySelector('meta[name="api-base-url"]') as HTMLMetaElement | null
     const apiBaseUrl = (window as any).API_CONCEPT_MAP_BASE_URL || metaApi?.content || 'http://localhost:10000'
@@ -616,6 +452,22 @@
     --slate-25:#f8fafc; --slate-50:#f1f5f9; --slate-100:#e2e8f0; --slate-200:#cbd5e1;
     --slate-300:#94a3b8; --slate-500:#64748b; --slate-700:#334155; --slate-800:#1f2937;
     --red:#ef4444; --red-700:#dc2626;
+  }
+
+  /* Spinner animato */
+  .spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid #e5e7eb;
+    border-top: 2px solid #6b7280;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    flex-shrink: 0;
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
   }
   </style>
   

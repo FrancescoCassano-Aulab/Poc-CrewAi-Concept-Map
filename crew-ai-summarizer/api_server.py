@@ -22,6 +22,7 @@ class ConceptMapResponse(BaseModel):
     success: bool
     message: str
     filename: Optional[str] = None
+    concept_map_data: Optional[dict] = None  # Dati JSON della mappa concettuale
     error_details: Optional[str] = None
 
 # Inizializzazione FastAPI
@@ -146,12 +147,38 @@ async def generate_concept_map(request: ConceptMapRequest):
             json_file_path = script_path.parent / expected_filename
             
             if json_file_path.exists():
-                print(f"✅ Mappa concettuale generata con successo: {expected_filename}")
-                return ConceptMapResponse(
-                    success=True,
-                    message=f"Mappa concettuale generata fino al timestamp {request.timestamp}",
-                    filename=expected_filename
-                )
+                try:
+                    # Leggi il contenuto del file JSON
+                    with open(json_file_path, 'r', encoding='utf-8') as f:
+                        concept_map_data = json.load(f)
+                    
+                    print(f"✅ Mappa concettuale generata con successo: {expected_filename}")
+                    print(f"📄 Dati JSON caricati e pronti per l'invio")
+                    
+                    # Opzionale: rimuovi il file dopo averlo letto (per evitare accumulo)
+                    # json_file_path.unlink()  # Decommentare per rimuovere il file
+                    
+                    return ConceptMapResponse(
+                        success=True,
+                        message=f"Mappa concettuale generata fino al timestamp {request.timestamp}",
+                        filename=expected_filename,
+                        concept_map_data=concept_map_data  # Includi i dati JSON nella risposta
+                    )
+                    
+                except json.JSONDecodeError as e:
+                    print(f"❌ Errore parsing JSON: {e}")
+                    return ConceptMapResponse(
+                        success=False,
+                        message="File JSON generato ma non valido",
+                        error_details=f"JSON parsing error: {str(e)}"
+                    )
+                except Exception as e:
+                    print(f"❌ Errore lettura file JSON: {e}")
+                    return ConceptMapResponse(
+                        success=False,
+                        message="Errore nella lettura del file JSON",
+                        error_details=str(e)
+                    )
             else:
                 # Script completato ma file non trovato
                 print(f"⚠️ Script completato ma file non trovato: {expected_filename}")
