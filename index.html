@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="it">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- (opzionale) passa l'API base URL ai Web Component via meta -->
+  <meta name="api-base-url" content="http://localhost:10000" />
+
+  <!-- Wistia script globale (caricali una sola volta in tutta l'app) -->
+  <script src="https://fast.wistia.com/assets/external/E-v1.js" async></script>
+
+  <!-- Il tuo bundle ESM dei Web Component, servito come “CDN” -->
+  <script type="module" src="http://localhost:3000/concept-map.js" crossorigin="anonymous"></script>
+
+  <title>PoC Lezione</title>
+</head>
+
+<body>
+  <div id="app"></div>
+  <script type="module" src="/src/main.js"></script>
+  <script>
+    window.API_CONCEPT_MAP_BASE_URL = "http://localhost:10000";
+  </script>
+  <script type="module" src="http://localhost:3000/concept-map.js"></script>
+</body>
+
+</html>

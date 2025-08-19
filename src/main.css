@@ -1,0 +1,20 @@
+/* Load Tailwind v4 (must be first) */
+@import "tailwindcss";
+
+/* Define custom design tokens for Tailwind v4 */
+@theme {
+    --color-primary: #cf1d56;
+    --color-primary-dark: #861f41;
+    --color-secondary: #005D68;
+}
+
+/* Tell Tailwind v4 where to scan for class names */
+@source "../index.html";
+@source "./**/*.{vue,js,ts,jsx,tsx,html}";
+
+/* opzionale: variabili coerenti alla palette, utili anche nel CSS classico */
+:root {
+    --primary: #cf1d56;
+    --primary-dark: #861f41;
+    --secondary: #005D68;
+}
