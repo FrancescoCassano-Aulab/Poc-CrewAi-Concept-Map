@@ -12,6 +12,15 @@ dist
 dist-ssr
 *.local
 
+# Python virtual environments
+crew-ai-summarizer/venv/
+crew-ai-summarizer/__pycache__/
+crew-ai-summarizer/*.pyc
+
+# Python generated files  
+*.json
+!package*.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
